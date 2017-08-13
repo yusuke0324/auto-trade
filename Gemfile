@@ -5,6 +5,9 @@ git_source(:github) do |repo_name|
   "https://github.com/#{repo_name}.git"
 end
 
+# kraken gem 5.0 seems to be empty and not work well.
+# gem 'kraken_ruby'
+gem 'hashie'
 gem 'ruby_coincheck_client'
 gem 'dotenv-rails', groups: [:development, :test]
 gem 'jquery-rails'

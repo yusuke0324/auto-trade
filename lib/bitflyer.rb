@@ -1,9 +1,9 @@
 class Bitflyer
-  require 'json'
-  require 'openssl'
-  require 'uri'
-  require 'net/http'
-  include HTTParty
+    require 'json'
+    require 'openssl'
+    require 'uri'
+    require 'net/http'
+    include HTTParty
 
   BASE_ENDPOINT = 'https://api.bitflyer.jp'
   # get key and secret from env file
