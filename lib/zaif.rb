@@ -6,7 +6,7 @@ class Zaif
   require 'net/http'
   include HTTParty
 
-  BASE_TRADE_ENDPOINT = 'https://api.zaif.jp/tapi/'
+  BASE_TRADE_ENDPOINT = 'https://api.zaif.jp/tapi'
   BASE_PUBLIC_ENDPOINT = 'https://api.zaif.jp/api/1/'
 
   # get key and secret from env file
@@ -21,17 +21,17 @@ class Zaif
     }
   end
 
-  def post(url, method, data)
+  def post(url, method, data={})
     data['nonce'] = Time.now.to_f.to_i
     # method is a method for Rest not HTTP like get or post
     data['method'] = method
-    body = encode_data(data)
+    p body = encode_data(data)
     headers = get_headers(body)
-    response = HTTParty.post(url + method, headers: headers, body: body)
+    response = HTTParty.post(url, headers: headers, body: body).parsed_response
   end
 
   def get(url, method)
-    response = HTTParty.get(url + method)
+    response = HTTParty.get(url + method).parsed_response
   end
 
   def encode_data(data)
@@ -42,5 +42,10 @@ class Zaif
 # get price------------------------
   def get_price(product_code='btc_jpy')
     p get(BASE_PUBLIC_ENDPOINT, 'ticker/' + product_code)
+  end
+
+# get info-------------------------
+  def get_info
+    p post(BASE_TRADE_ENDPOINT, 'get_info')
   end
 end
