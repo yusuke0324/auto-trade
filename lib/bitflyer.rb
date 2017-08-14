@@ -31,10 +31,13 @@ class Bitflyer
   end
 
 # GET PRICE------------------------------------
-  def get_price(product_code='BTC_JPY')
+  def get_price(product_code='ETH_BTC')
     path = '/v1/getticker'
     url = BASE_ENDPOINT + path
-    response = HTTParty.get(url, {query: product_code}).parsed_response
+    params = {
+      product_code: product_code
+    }
+    response = HTTParty.get(url, {query: params}).parsed_response
     parsed_res = {
       exchange: self,
       bid: response["best_bid"],
