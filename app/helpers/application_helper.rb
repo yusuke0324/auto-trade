@@ -3,8 +3,10 @@ module ApplicationHelper
 
   def record_historical_rates(times=3600, interval_sec=1)
     cc = Coincheck.new
-    zaif = Zaif.new
-    exchange_list = [cc, zaif]
+    # zaif = Zaif.new
+    bf = Bitflyer.new
+
+    exchange_list = [cc, bf]
 
     times.times do
       save_historical_rates_for_exchange_list(exchange_list)
@@ -56,7 +58,7 @@ module ApplicationHelper
     }
   end
 
-  def get_prices_for_revers(high, low)
+  def get_prices_for_reverse(high, low)
     high_price = high.get_price
     low_price = low.get_price
     result = {
@@ -74,7 +76,7 @@ module ApplicationHelper
     dif - thresh > prices[:high][:ask] - prices[:low][:bid]
   end
 
-  def normal_order(prices, alpha:1, pair:'btc_jpy', budget:10000)
+  def normal_order(prices, alpha:1, pair:'btc_jpy', budget:5000)
     # BUY from low, SELL to high
     # BUY--------------------------------
     buy_order = {
@@ -83,7 +85,7 @@ module ApplicationHelper
       rate: prices[:low][:ask] + alpha,
       amount: get_target_amount(prices[:low][:ask] + alpha, budget)
     }
-    p prices[:low][:exchange].make_new_order(buy_order)
+    low_order_id =  prices[:low][:exchange].make_new_order(buy_order)[:order_id]
     # SELL----------------------------------
     sell_order = {
       order_type: 'sell',
@@ -91,11 +93,13 @@ module ApplicationHelper
       rate: prices[:high][:bid] - alpha,
       amount: get_target_amount(prices[:high][:bid] - alpha, budget)
     }
-    p prices[:high][:exchange].make_new_order(sell_order)
+    high_order_id = prices[:high][:exchange].make_new_order(sell_order)[:order_id]
     dif = prices[:high][:bid] - prices[:low][:ask] - 2 *alpha
+
+    return dif, low_order_id, high_order_id
   end
 
-  def reverse_order(prices, alpha:1, pair:'btc_jpy', budget:10000)
+  def reverse_order(prices, alpha:1, pair:'btc_jpy', budget:5000)
     # SELL to low, BUY from high
     # SELL BACK----------------------------------------
     sell_order = {
@@ -104,7 +108,7 @@ module ApplicationHelper
       rate: prices[:low][:bid] - alpha,
       amount: get_target_amount(prices[:low][:bid] - alpha, budget)
     }
-    p prices[:low][:exchange].make_new_order(sell_order)
+    low_order_id = prices[:low][:exchange].make_new_order(sell_order)[:order_id]
 
     # BUY BACK-----------------------------------
     buy_order = {
@@ -113,33 +117,57 @@ module ApplicationHelper
       rate: prices[:high][:ask] + alpha,
       amount: get_target_amount(prices[:high][:ask] + alpha, budget)
     }
-    p prices[:high][:exchange].make_new_order(buy_order)
+    high_order_id = prices[:high][:exchange].make_new_order(buy_order)[:order_id]
+
+    return low_order_id, high_order_id
   end
 
-  def round_trade
+  def check_orders(prices, low_order_id, high_order_id)
+    low_close = false
+    high_close = false
+    cnt = 0
+    # until both are closed, check whether they are closed
+    until low_close and high_close
+      low_close = prices[:low][:exchange].order_closed?(low_order_id)
+      high_close = prices[:high][:exchange].order_closed?(high_order_id)
+      p low_close, high_close, cnt
+      cnt += 1
+      sleep(1)
+    end
+  end
+
+  def round_trade(wide_thresh=500, shrink_thresh=200, budget=10000, limit=30)
     # exchanges init------------
     cc = Coincheck.new
-    zaif = Zaif.new
-    exchange_list = [cc, zaif]
+    # zaif = Zaif.new
+    bf = Bitflyer.new
+    exchange_list = [cc, bf]
+    round_cnt = 0
 
     # first trade --------------------
-    300.times do
+    while round_cnt < limit
       # get low and high
       reverse_flg = false
       prices = get_target_exchanges(exchange_list)
-      if should_trade?(prices) then
-        dif = normal_order(prices)
+      if should_trade?(prices, thresh: wide_thresh) then
+        dif, low_order_id, high_order_id = normal_order(prices, budget: budget)
+
+        check_orders(prices, low_order_id, high_order_id)
 
     # ERROR hundling (cancel order)-----
         # sleep(10)
         # check_orders
     # seconde trade--------------------
         until reverse_flg
-          re_prices = get_prices_for_revers(prices[:high][:exchange], prices[:low][:exchange] )
-          reverse_flg = should_reverse_trade?(re_prices, dif)
+          re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange] )
+          reverse_flg = should_reverse_trade?(re_prices, dif, thresh: shrink_thresh)
         sleep(1)
         end
-        reverse_order(re_prices)
+        low_order_id, high_order_id = reverse_order(re_prices, budget: budget)
+        check_orders(re_prices, low_order_id, high_order_id)
+    # endo of round trade------------
+        print("#{round_cnt} round trades have been completed!")
+        round_cnt += 1
       end
       sleep(1)
     end
@@ -169,9 +197,21 @@ module ApplicationHelper
 
   def test
     cc = Coincheck.new
-    zaif = Zaif.new
-    exchange_list = [cc, zaif]
+    # zaif = Zaif.new
+    quoine = Quoine.new
+    exchange_list = [cc, quoine]
     get_target_exchanges(exchange_list)
+  end
+
+  def testb
+    b = Bitflyer.new
+    order = {
+      pair: 'btc_jpy',
+      order_type: 'buy',
+      rate: 300000,
+      amount: 0.01,
+    }
+    b.make_new_order(order)
   end
 
   def test2

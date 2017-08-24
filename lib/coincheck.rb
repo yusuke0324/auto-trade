@@ -84,12 +84,12 @@ class Coincheck
     #   rate: 1,
     #   amount: 1
     # }
-    order
-    # res = post('exchange/orders', data:order)
-    # result = {
-    #   success: res['success'],
-    #   order_id: res['id']
-    # }
+    p order
+    res = post('exchange/orders', data:order)
+    result = {
+      success: res['success'],
+      order_id: res['id']
+    }
   end
 
   def order_closed?(order_id)
