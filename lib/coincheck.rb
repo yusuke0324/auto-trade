@@ -111,6 +111,11 @@ class Coincheck
     # {"success"=>true, "id"=>204097497}
     res['success']
   end
+
+  def has_budget?(jpy_budget, btc_budget)
+    res = get('accounts/balance')
+    (jpy_budget < res['jpy'].to_f) && (btc_budget < res['btc'].to_f)
+  end
   # @@cc = CoincheckClient.new(KEY, SECRET)
   # def read_balance
   #   p @@cc.read_balance

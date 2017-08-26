@@ -12,6 +12,11 @@ class Zaif
   BASE_TRADE_ENDPOINT = 'https://api.zaif.jp/tapi'
   BASE_PUBLIC_ENDPOINT = 'https://api.zaif.jp/api/1/'
 
+  SUCCESS_DIC = {
+    1 => true,
+    0 => false
+  }
+
   # get key and secret from env file
   KEY = ENV['ZAIF_KEY']
   SECRET = ENV['ZAIF_SECRET']
@@ -59,25 +64,46 @@ class Zaif
 # make new order-------------------
   def make_new_order(order)
     ordertype_dic = {
-      'buy' => 'ask',
-      'sell' => 'bid',
-      
+      'buy' => 'bid',
+      'sell' => 'ask'
     }
     # for round down and up
       # need to be examined
     round_dic = {
-      'buy' => 'down',
-      'sell' => 'up'
+      'buy' => 'up',
+      'sell' => 'down'
     }
-    parsed_order = {
+    p parsed_order = {
       # 'btc_jpy'
       currency_pair: order[:pair],
       # 'buy' or 'sell'
       action: ordertype_dic[order[:order_type]],
-      price: reach_minimum_price_unit(order[:rate], round:round_dic[order[:order_type]]),
-      amount: order[:amount],
+      price: reach_minimum_price_unit(order[:rate], round:round_dic[order[:order_type]]).to_i,
+      amount: order[:amount]
     }
-    # p post(BASE_TRADE_ENDPOINT, 'trade',data=order)
+    res = post(BASE_TRADE_ENDPOINT, 'trade', parsed_order)
+    result = {
+      success: SUCCESS_DIC[res['success']],
+      order_id: res['return']['order_id'].to_s
+    }
+  end
+
+  def order_closed?(order_id)
+    res = post(BASE_TRADE_ENDPOINT, 'active_orders')
+    return !res['return'].has_key?(order_id.to_s)
+  end
+
+  def cancel_order(order_id)
+    params = {
+      order_id: order_id
+    }
+    res = post(BASE_TRADE_ENDPOINT, 'cancel_order', params)
+    SUCCESS_DIC[res['success']]
+  end
+
+  def has_budget?(jpy_budget, btc_budget)
+    res = post(BASE_TRADE_ENDPOINT, 'get_info')['return']['funds']
+    (jpy_budget < res['jpy'].to_f) && (btc_budget < res['btc'].to_f)
   end
 
 # get info-------------------------

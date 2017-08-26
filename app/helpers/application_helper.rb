@@ -3,8 +3,8 @@ module ApplicationHelper
 
   def record_historical_rates(times=3600, interval_sec=1)
     cc = Coincheck.new
-    # zaif = Zaif.new
-    bf = Bitflyer.new
+    zaif = Zaif.new
+    # bf = Bitflyer.new
 
     exchange_list = [cc, bf]
 
@@ -31,24 +31,20 @@ module ApplicationHelper
 
   def get_target_exchanges(exchanges)
     # return target excahnges for a tradem, high and low
+    # start_time = Time.now
     prices = []
     locker = Mutex::new
-    # なぜかpricesが更新されない。Rubyはじめて以来の謎
-    # Parallel.each(exchanges, in_thread: exchanges.length) do |exchange|
-    #   price = exchange.get_price
-    #   p 'got price'
-    #   p price
-    #   locker.synchronize do
-    #     p 'adding'
-    #     prices << price
-    #     p prices
-    #   end
-    # end
-    # when all parallel processes are done, the following process run, thanks!!
-    # p prices
-    exchanges.each do |exchange|
-      prices << exchange.get_price
+    Parallel.each(exchanges, in_threads: exchanges.length) do |exchange|
+      price = exchange.get_price
+      locker.synchronize do
+        prices << price
+      end
     end
+    # when all parallel processes are done, the following process run, thanks!!
+    # not parallel ver. pararell is about twice faster!
+    # exchanges.each do |exchange|
+    #   prices << exchange.get_price
+    # end
     sorted_prices = prices.sort{|a, b|
       a[:ask] <=> b[:ask]
     }
@@ -56,15 +52,61 @@ module ApplicationHelper
       low: sorted_prices[0],
       high: sorted_prices[1]
     }
+    # p "it took #{Time.now - start_time}"
   end
 
-  def get_prices_for_reverse(high, low)
-    high_price = high.get_price
-    low_price = low.get_price
-    result = {
-      high: high_price,
-      low: low_price
-    }
+  def test_parallel
+    cc = Coincheck.new
+    zaif = Zaif.new
+    # bf = Bitflyer.new
+    exchange_list = [cc, zaif]
+    prices = get_target_exchanges(exchange_list)
+    p "first get prices #{prices}"
+    # re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange] )
+    price_list = [
+      {
+        id: :high,
+        exchange: prices[:high][:exchange]
+      },
+      {
+        id: :low,
+        exchange: prices[:low][:exchange]
+      },
+    ]
+    p re_prices_pal = get_prices_for_reverse_par(price_list)
+    p re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange])
+
+  end
+
+#[OLD] this is not parallel ver
+  # def get_prices_for_reverse(high, low)
+  #   start_time = Time.now
+  #   high_price = high.get_price
+  #   low_price = low.get_price
+  #   result = {
+  #       high: high_price,
+  #       low: low_price
+  #     }
+  #   p "NOT parallel it took #{Time.now - start_time}"
+  #   result
+  # end
+
+  def get_prices_for_reverse(exchange_list)
+    # in order to apply multi threads, this method take a list of {
+    # id: :high or :low
+    # exchange: exchange_obj
+  # }
+    # start_time = Time.now
+    result = {}
+    locker = Mutex::new
+    Parallel.each(exchange_list, in_threads: exchange_list.length) do |price|
+      val = price[:exchange].get_price
+      locker.synchronize do
+        result[price[:id]] = val
+      end
+    end
+    # p "Parallel it took #{Time.now - start_time}"
+    result
   end
 
   def should_trade?(prices, thresh:300)
@@ -74,6 +116,21 @@ module ApplicationHelper
 
   def should_reverse_trade?(prices, dif, thresh:250)
     dif - thresh > prices[:high][:ask] - prices[:low][:bid]
+  end
+
+  def get_normal_order_list(prices, buy_order, sell_order)
+    # in order to keep high and low info in multi threads, make a list of a hash which contains id
+    normal_order_list = [
+      {
+        id: :high,
+        exchange: prices[:high][:exchange],
+        order: 
+      },
+      {
+        id: :low,
+        exchange: prices[:low][:exchange]
+      },
+    ]
   end
 
   def normal_order(prices, alpha:1, pair:'btc_jpy', budget:5000)
@@ -136,12 +193,40 @@ module ApplicationHelper
     end
   end
 
-  def round_trade(wide_thresh=500, shrink_thresh=200, budget=10000, limit=30)
+  def test_can_start_trade?
+    c = Coincheck.new
+    z = Zaif.new
+    exchange_list = [c, z]
+    can_start_trade?(exchange_list)
+  end
+
+  def can_start_trade?(exchange_list, budget=10000)
+    # use coincheck as a benchmark
+    c = Coincheck.new
+    curretn_btc_rate = c.get_price[:ask].to_f
+    btc_budget = (budget / curretn_btc_rate).to_f * 1.1
+    jpy_budget = budget * 1.1
+
+    exchange_list.each do |exchange|
+      if not exchange.has_budget?(jpy_budget, btc_budget)
+        return false
+      end
+    end
+
+    return true
+  end
+
+  def round_trade(wide_thresh=300, shrink_thresh=200, budget=10000, limit=30)
     # exchanges init------------
     cc = Coincheck.new
-    # zaif = Zaif.new
-    bf = Bitflyer.new
-    exchange_list = [cc, bf]
+    zaif = Zaif.new
+    # bf = Bitflyer.new
+    exchange_list = [cc, zaif]
+    # check each exchange has enough budget
+    if not can_start_trade?(exchange_list, budget)
+      p "the exchanges don't have enough deposit!!"
+      return
+    end
     round_cnt = 0
 
     # first trade --------------------
@@ -159,7 +244,9 @@ module ApplicationHelper
         # check_orders
     # seconde trade--------------------
         until reverse_flg
-          re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange] )
+          # this is for multi threads process
+          high_low_list = get_high_low_list(prices)
+          re_prices = get_prices_for_reverse(high_low_list)
           reverse_flg = should_reverse_trade?(re_prices, dif, thresh: shrink_thresh)
         sleep(1)
         end
@@ -171,6 +258,20 @@ module ApplicationHelper
       end
       sleep(1)
     end
+  end
+
+  def get_high_low_list(prices)
+    # in order to keep high and low info in multi threads, make a list of a hash which contains id
+    high_low_list = [
+      {
+        id: :high,
+        exchange: prices[:high][:exchange]
+      },
+      {
+        id: :low,
+        exchange: prices[:low][:exchange]
+      },
+    ]
   end
 
   def reach_minimum_price_unit(price, unit:5, round:'up')
@@ -203,38 +304,16 @@ module ApplicationHelper
     get_target_exchanges(exchange_list)
   end
 
-  def testb
-    b = Bitflyer.new
+  def test(obj)
+    # b = Bitflyer.new
     order = {
       pair: 'btc_jpy',
       order_type: 'buy',
       rate: 300000,
       amount: 0.01,
     }
-    b.make_new_order(order)
+    obj.make_new_order(order)
   end
 
-  def test2
-    total = 0
-    list = []
 
-    locker = Mutex::new
-
-    Parallel.each((1..10).to_a, in_threads: 2) do |var|
-    # ActiveRecord::Base.connection_pool.with_connection do
-      # puts "#{var}番 #{User.find(var).id}"
-      # このブロック内は必ず同時に一つのスレッドしか処理しない
-      tmp = var
-      sleep(1)
-      locker.synchronize do
-        total += var
-        p list << tmp
-      end
-    # end
-    end
-
-    puts total
-    p list
-    puts "finish!!"
-  end
 end
