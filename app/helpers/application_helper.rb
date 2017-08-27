@@ -73,9 +73,11 @@ module ApplicationHelper
         exchange: prices[:low][:exchange]
       },
     ]
-    p re_prices_pal = get_prices_for_reverse_par(price_list)
-    p re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange])
-
+    # p re_prices_pal = get_prices_for_reverse_par(price_list)
+    # p re_prices = get_prices_for_reverse(prices[:high][:exchange], prices[:low][:exchange])
+    start_time = Time.now
+    reverse_order(prices, alpha:-10000)
+    p "took #{Time.now - start_time}"
   end
 
 #[OLD] this is not parallel ver
@@ -118,18 +120,19 @@ module ApplicationHelper
     dif - thresh > prices[:high][:ask] - prices[:low][:bid]
   end
 
-  def get_normal_order_list(prices, buy_order, sell_order)
+  def get_order_list(prices, low_order, high_order)
     # in order to keep high and low info in multi threads, make a list of a hash which contains id
     normal_order_list = [
       {
-        id: :high,
+        id: :high_order_id,
         exchange: prices[:high][:exchange],
-        order: 
+        order: high_order
       },
       {
-        id: :low,
-        exchange: prices[:low][:exchange]
-      },
+        id: :low_order_id,
+        exchange: prices[:low][:exchange],
+        order: low_order
+      }
     ]
   end
 
@@ -142,7 +145,8 @@ module ApplicationHelper
       rate: prices[:low][:ask] + alpha,
       amount: get_target_amount(prices[:low][:ask] + alpha, budget)
     }
-    low_order_id =  prices[:low][:exchange].make_new_order(buy_order)[:order_id]
+    # not parallel
+    # low_order_id =  prices[:low][:exchange].make_new_order(buy_order)[:order_id]
     # SELL----------------------------------
     sell_order = {
       order_type: 'sell',
@@ -150,10 +154,29 @@ module ApplicationHelper
       rate: prices[:high][:bid] - alpha,
       amount: get_target_amount(prices[:high][:bid] - alpha, budget)
     }
-    high_order_id = prices[:high][:exchange].make_new_order(sell_order)[:order_id]
-    dif = prices[:high][:bid] - prices[:low][:ask] - 2 *alpha
 
-    return dif, low_order_id, high_order_id
+    # low -> buy, high -> sell
+    normal_order_list = get_order_list(prices, buy_order, sell_order)
+    # not parallel
+    # high_order_id = prices[:high][:exchange].make_new_order(sell_order)[:order_id]
+    dif = prices[:high][:bid] - prices[:low][:ask] - 2 *alpha
+    # Parallel process------------------------
+    order_ids = parallel_order(normal_order_list)
+    return dif, order_ids[:low_order_id], order_ids[:high_order_id]
+  end
+
+  def parallel_order(order_list)
+    order_ids = {}
+    locker = Mutex::new
+    Parallel.each(order_list, in_threads: order_list.length) do |order|
+      order_id = order[:exchange].make_new_order(order[:order])[:order_id].to_s
+
+      locker.synchronize do
+        order_ids[order[:id]] = order_id
+      end
+    end
+
+    order_ids
   end
 
   def reverse_order(prices, alpha:1, pair:'btc_jpy', budget:5000)
@@ -165,7 +188,7 @@ module ApplicationHelper
       rate: prices[:low][:bid] - alpha,
       amount: get_target_amount(prices[:low][:bid] - alpha, budget)
     }
-    low_order_id = prices[:low][:exchange].make_new_order(sell_order)[:order_id]
+    # low_order_id = prices[:low][:exchange].make_new_order(sell_order)[:order_id]
 
     # BUY BACK-----------------------------------
     buy_order = {
@@ -174,9 +197,13 @@ module ApplicationHelper
       rate: prices[:high][:ask] + alpha,
       amount: get_target_amount(prices[:high][:ask] + alpha, budget)
     }
-    high_order_id = prices[:high][:exchange].make_new_order(buy_order)[:order_id]
+    # high_order_id = prices[:high][:exchange].make_new_order(buy_order)[:order_id]
 
-    return low_order_id, high_order_id
+    # low -> sell, high -> buy
+    reverse_order_list = get_order_list(prices, sell_order, buy_order)
+    order_ids = parallel_order(reverse_order_list)
+
+    return order_ids[:low_order_id], order_ids[:high_order_id]
   end
 
   def check_orders(prices, low_order_id, high_order_id)
@@ -216,7 +243,7 @@ module ApplicationHelper
     return true
   end
 
-  def round_trade(wide_thresh=300, shrink_thresh=200, budget=10000, limit=30)
+  def round_trade(wide_thresh=100, shrink_thresh=50, budget=10000, limit=30, sleep_time=2.5)
     # exchanges init------------
     cc = Coincheck.new
     zaif = Zaif.new
@@ -248,7 +275,7 @@ module ApplicationHelper
           high_low_list = get_high_low_list(prices)
           re_prices = get_prices_for_reverse(high_low_list)
           reverse_flg = should_reverse_trade?(re_prices, dif, thresh: shrink_thresh)
-        sleep(1)
+        sleep(sleep_time)
         end
         low_order_id, high_order_id = reverse_order(re_prices, budget: budget)
         check_orders(re_prices, low_order_id, high_order_id)
@@ -256,7 +283,7 @@ module ApplicationHelper
         print("#{round_cnt} round trades have been completed!")
         round_cnt += 1
       end
-      sleep(1)
+      sleep(sleep_time)
     end
   end
 
@@ -313,6 +340,29 @@ module ApplicationHelper
       amount: 0.01,
     }
     obj.make_new_order(order)
+  end
+
+  def get_best_price(price_amount_list, target_amount)
+    # return best ask or bid for the amount from the order book info of ask or bid
+    # price_amount_list: a list of ['price' , 'amount']
+    total_amount = 0
+    price_amount_list.each do |price_amount|
+      total_amount += price_amount[1].to_f
+      if total_amount >= target_amount then
+        return price_amount[0].to_f
+      end
+    end
+
+  end
+
+  def test_get_price_performance
+    z = Zaif.new
+    c = Coincheck.new
+    exchanges = [c, z]
+    100.times do
+      p get_target_exchanges(exchanges)
+      sleep(2)
+    end
   end
 
 

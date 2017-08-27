@@ -52,13 +52,14 @@ class Zaif
     uri.query
   end
 # get price------------------------
-  def get_price(product_code='btc_jpy')
+  def get_price(target_amount=0.02, product_code='btc_jpy')
     # p get(BASE_PUBLIC_ENDPOINT, 'ticker/' + product_code)
     res = get(BASE_PUBLIC_ENDPOINT, 'depth/' + product_code)
-    resutl = {
+
+    result = {
       exchange: self,
-      ask: res['asks'][0][0],
-      bid: res['bids'][0][0]
+      ask: get_best_price(res['asks'], target_amount),
+      bid: get_best_price(res['bids'], target_amount)
     }
   end
 # make new order-------------------

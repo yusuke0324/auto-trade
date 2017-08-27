@@ -61,14 +61,22 @@ class Coincheck
   # end
 
 # it looks 'ticker' method is NOT the latest. to get the latest rate, order_books needs to be called.
-  def get_price(product_code='')
+  def get_price(target_amount=0.02,product_code='')
+    # TODO: error handling
+    # Errno::ENETUNREACH: Failed to open TCP connection to coincheck.com:443 (Network is unreachable - connect(2) for "coincheck.com" port 443)
     # get latest price for ask and bid from order books
     get('order_books')["asks"][0][0]
     res = get('order_books')
+    # result = {
+    #   exchange: self,
+    #   ask: res['asks'][0][0].to_f,
+    #   bid: res['bids'][0][0].to_f
+    # }
+
     result = {
       exchange: self,
-      ask: res['asks'][0][0].to_f,
-      bid: res['bids'][0][0].to_f
+      ask: get_best_price(res['asks'], target_amount),
+      bid: get_best_price(res['bids'], target_amount)
     }
   end
 
