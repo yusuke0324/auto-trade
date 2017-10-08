@@ -89,6 +89,14 @@ class Zaif
     }
   end
 
+  def get_balance(currency_list=['jpy', 'btc'])
+    res = post(BASE_TRADE_ENDPOINT, 'get_info')['return']['funds']
+    result = {
+      currency_list[0] => res[currency_list[0]].to_f,
+      currency_list[1] => res[currency_list[1]].to_f
+    }
+  end
+
   def order_closed?(order_id)
     res = post(BASE_TRADE_ENDPOINT, 'active_orders')
     return !res['return'].has_key?(order_id.to_s)

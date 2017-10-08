@@ -5,6 +5,9 @@ class Quoine
   require 'net/http'
   require 'jwt'
   include HTTParty
+  include ApplicationHelper
+
+  attr_accessor :exchange_name
 
   BASE_ENDPOINT = 'https://api.quoine.com'
 
@@ -45,17 +48,16 @@ class Quoine
     get('/accounts/balance')
   end
 
-  def get_price(product_code=5)
-    res = get('/products/' + product_code.to_s + '/price_levels')
+  def get_price(target_amount=0.02, product_code=5)
+    p res = get('/products/' + product_code.to_s + '/price_levels')
     result = {
       exchange: self,
-      ask:res['sell_price_levels'][0][0].to_f,
-      bid:res['buy_price_levels'][0][0].to_f,
+      ask: get_best_price(res['sell_price_levels'], target_amount),
+      bid: get_best_price(res['buy_price_levels'], target_amount)
     }
   end
 
   def make_new_order(order)
-
     product_id_doc = {
       "btc_jpy" => 5
     }
@@ -70,7 +72,23 @@ class Quoine
       price: order[:rate].to_s
     }
     # work in progress!!!
-    res = post('/orders/')
+    res = post('/orders/', data: parsed_order)
+    if res.has_key?("id") then
+      result = {
+        success: true,
+        order_id: res["id"].to_s
+      }
+    else
+      result = {
+        success: false
+      }
+    end
+
+    result
+  end
+
+  def order_closed?(order_id)
+    # res = 
   end
 
   def get_products

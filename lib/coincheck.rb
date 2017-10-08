@@ -80,8 +80,12 @@ class Coincheck
     }
   end
 
-  def get_balance
-    p get('accounts/balance')
+  def get_balance(currency_list=['jpy', 'btc'])
+    res =  get('accounts/balance')
+    result = {
+      currency_list[0] => res[currency_list[0]].to_f,
+      currency_list[1] => res[currency_list[1]].to_f
+    }
   end
 
   def make_new_order(order)

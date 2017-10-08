@@ -243,6 +243,39 @@ module ApplicationHelper
     return true
   end
 
+  def test_get_funds_sum
+    z = Zaif.new
+    c = Coincheck.new
+    exchange_list = [z, c]
+    funds = get_funds_sum(exchange_list)
+  end
+
+  def get_funds_sum(exchange_list, currency_list=['jpy', 'btc'])
+    # return obj which contain currecy key and the funds which are collected from all exchanges in the exchange list
+    locker = Mutex::new
+    balance_list = []
+
+    # init funds obj
+    funds = {}
+    currency_list.each do |currency|
+      funds[currency] = 0
+    end
+    Parallel.each(exchange_list, in_threads: exchange_list.length) do |exchange|
+      balance = exchange.get_balance(currency_list)
+
+      locker.synchronize do
+        balance_list << balance
+      end
+    end
+
+    balance_list.each do |balance|
+      balance.each do |k, v|
+        funds[k] += v
+      end
+    end
+    funds
+  end
+
   def round_trade(wide_thresh=100, shrink_thresh=50, budget=10000, limit=30, sleep_time=2.5)
     # exchanges init------------
     cc = Coincheck.new
@@ -255,7 +288,10 @@ module ApplicationHelper
       return
     end
     round_cnt = 0
-
+    sleep(sleep_time)
+    # save first all funds for jpy and btc for all exchanges
+    prev_funds = get_funds_sum(exchange_list)
+    sleep(sleep_time)
     # first trade --------------------
     while round_cnt < limit
       # get low and high
@@ -279,8 +315,13 @@ module ApplicationHelper
         end
         low_order_id, high_order_id = reverse_order(re_prices, budget: budget)
         check_orders(re_prices, low_order_id, high_order_id)
+        sleep(sleep_time)
+        curr_funds = get_funds_sum(exchange_list)
     # endo of round trade------------
-        print("#{round_cnt} round trades have been completed!")
+        p "#{round_cnt} round trades have been completed!"
+        p "jpy+: #{curr_funds['jpy'] - prev_funds['jpy']}"
+        p "btc+: #{curr_funds['btc'] - prev_funds['btc']}"
+        prev_funds = curr_funds
         round_cnt += 1
       end
       sleep(sleep_time)
@@ -331,7 +372,7 @@ module ApplicationHelper
     get_target_exchanges(exchange_list)
   end
 
-  def test(obj)
+  def test_order(obj)
     # b = Bitflyer.new
     order = {
       pair: 'btc_jpy',
